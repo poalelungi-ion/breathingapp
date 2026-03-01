@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Breathing</title>
+  <style>
+    /* --- SAMSUNG ONE UI / MATERIAL 3 THEME --- */
+    :root {
+      --bg: #000000;
+      --surface: #1c1c1e; /* Samsung Dark Surface */
+      --surface-variant: #2c2c2e;
+      --primary: #32d74b;
+      --danger: #ff453a;
+      --blue: #0a84ff;
+      --text: #ffffff;
+      --text-dim: rgba(255,255,255,0.6);
+      --font: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --sheet-radius: 32px;
+    }
+
+    body {
+      margin: 0; background: var(--bg); color: var(--text); font-family: var(--font);
+      overflow: hidden; touch-action: none; height: 100vh; display: flex; flex-direction: column;
+    }
+
+    /* GLOBAL CANVAS */
+    #canvas-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none;}
+
+    /* --- MAIN UI CONTAINER --- */
+    #ui-layer {
+      position: relative; z-index: 10; flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: space-between;
+      padding: env(safe-area-inset-top) 24px calc(env(safe-area-inset-bottom) + 30px) 24px;
+      pointer-events: none; /* Pass-through to canvas if needed */
+    }
+
+    /* --- TOP APP BAR --- */
+    .top-bar {
+      width: 100%; display: flex; justify-content: space-between; align-items: center;
+      margin-top: 10px; pointer-events: auto;
+    }
+
+    .icon-btn {
+      background: rgba(40,40,40,0.5); border: none; color: #fff;
+      width: 48px; height: 48px; border-radius: 50%; font-size: 20px;
+      display: flex; justify-content: center; align-items: center; cursor: pointer;
+      backdrop-filter: blur(10px); transition: background 0.2s;
+    }
+    .icon-btn:active { background: rgba(80,80,80,0.8); }
+
+    .status-pill {
+      background: rgba(30, 30, 30, 0.6); backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.05); padding: 10px 20px; border-radius: 100px;
+      font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      display: flex; align-items: center; gap: 10px;
+      opacity: 0; transform: translateY(-10px); transition: all 0.3s;
+    }
+    .status-pill.visible { opacity: 1; transform: translateY(0); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); }
+
+    /* --- TIMER CLUSTER --- */
+    .timer-cluster { position: relative; width: 300px; height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: auto;}
+    .timer-val { font-size: 6rem; font-weight: 200; font-variant-numeric: tabular-nums; z-index: 2; line-height: 1; margin-bottom: -5px;}
+    .timer-sub { font-size: 1.1rem; opacity: 0.7; font-weight: 500; text-transform: uppercase; letter-spacing: 2px; z-index: 2;}
+    .progress-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; overflow: visible;}
+    .ring-bg { stroke: rgba(255,255,255,0.08); stroke-width: 6; fill: none; }
+    .ring-fill { stroke: var(--primary); stroke-width: 6; stroke-linecap: round; fill: none; transition: stroke 0.3s ease; filter: drop-shadow(0 0 8px currentColor);}
+
+    /* --- CONTROLS --- */
+    .controls-area { width: 100%; max-width: 360px; pointer-events: auto; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Material 3 Segmented Button */
+    .mode-switch {
+      background: rgba(40,40,40,0.6); backdrop-filter: blur(10px); border-radius: 100px;
+      padding: 4px; display: flex; width: 100%; justify-content: space-between;
+    }
+    .mode-btn {
+      padding: 14px 10px; border-radius: 100px; font-size: 13px; font-weight: 700; flex:1; text-align:center;
+      text-transform: uppercase; color: rgba(255,255,255,0.5); cursor: pointer; transition: all 0.2s;
+    }
+    .mode-btn.active { background: #fff; color: #000; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+
+    /* One UI Large Pill Buttons */
+    .btn {
+      width: 100%; background: var(--surface-variant); color: #fff; border: none;
+      padding: 20px; border-radius: 100px; font-size: 18px; font-weight: 600;
+      cursor: pointer; transition: transform 0.1s, background 0.2s; text-align: center;
+    }
+    .btn:active { transform: scale(0.97); background: #3c3c3e; }
+    .btn-primary { background: var(--primary); color: #000; font-weight: 700; }
+    .btn-panic { background: rgba(255, 69, 58, 0.2); color: var(--danger); }
+    .btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.2); }
+
+    /* --- BOTTOM SHEETS (Material 3 / One UI style) --- */
+    .scrim {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.6); z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    }
+    .scrim.active { opacity: 1; pointer-events: auto; }
+
+    .bottom-sheet {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: var(--surface);
+      border-radius: var(--sheet-radius) var(--sheet-radius) 0 0;
+      padding: 24px 24px calc(env(safe-area-inset-bottom) + 24px) 24px;
+      transform: translateY(110%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+      z-index: 100; display: flex; flex-direction: column; gap: 16px;
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.5); pointer-events: auto;
+    }
+    .bottom-sheet.active { transform: translateY(0); }
+    .drag-handle { width: 40px; height: 5px; background: rgba(255,255,255,0.2); border-radius: 10px; margin: 0 auto 10px; }
+
+    .sheet-title { font-size: 24px; font-weight: 700; margin-bottom: 5px; }
+    .sheet-sub { font-size: 15px; color: var(--text-dim); margin-bottom: 10px; }
+
+    /* --- CALENDAR UI --- */
+    .stat-card { background: var(--surface-variant); padding: 16px; border-radius: 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;}
+    .stat-val { color: var(--primary); font-size: 20px; font-weight: bold;}
+
+    .cal-header { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 10px; text-align: center; font-size: 12px; color: var(--text-dim); font-weight: 600;}
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+    .cal-day {
+      aspect-ratio: 1; background: transparent; border-radius: 50%;
+      display: flex; justify-content: center; align-items: center; font-size: 14px; color: var(--text);
+    }
+    .cal-day.empty { background: transparent; color: transparent; }
+    .cal-day.done { background: var(--primary); color: #000; font-weight: bold; }
+
+    /* --- SETTINGS INPUTS --- */
+    .input-group { margin-bottom: 5px; }
+    .input-group label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 8px; font-weight: 500;}
+    .input-group input {
+      width: 100%; background: var(--surface-variant); border: none;
+      color: #fff; padding: 18px; border-radius: 16px; font-size: 16px; box-sizing: border-box;
+      outline: none;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas-layer"></canvas>
+
+<div class="scrim" id="scrim" onclick="UI.closeAllSheets()"></div>
+
+<div id="ui-layer">
+
+  <div class="top-bar">
+    <button class="icon-btn" onclick="UI.openSheet('sheet-stats')">📅</button>
+    <div class="status-pill" id="status-pill">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Phase 1</span>
+    </div>
+    <button class="icon-btn" onclick="UI.openSheet('sheet-settings')">⚙️</button>
+  </div>
+
+  <div class="timer-cluster" id="cluster-ref">
+    <svg class="progress-svg" viewBox="0 0 100 100">
+      <circle class="ring-bg" cx="50" cy="50" r="47" />
+      <circle class="ring-fill" id="ring" cx="50" cy="50" r="47" stroke-dasharray="295.3" stroke-dashoffset="295.3" />
+    </svg>
+    <div class="timer-val" id="timer">00</div>
+    <div class="timer-sub" id="label">Moriarty</div>
+  </div>
+
+  <div class="controls-area">
+    <div class="mode-switch" id="mode-switch">
+      <div class="mode-btn active" onclick="App.setMode('beg')" id="btn-beg">Beg</div>
+      <div class="mode-btn" onclick="App.setMode('int')" id="btn-int">Norm</div>
+      <div class="mode-btn" onclick="App.setMode('pro')" id="btn-pro">Pro</div>
+      <div class="mode-btn" onclick="App.setMode('cust')" id="btn-cust">Cust</div>
+    </div>
+    <button id="btn-start" class="btn btn-primary" onclick="App.start()">Start Session</button>
+    <button id="btn-panic" class="btn btn-panic hidden" onclick="App.panic()">I Breathed (Skip)</button>
+  </div>
+</div>
+
+<div class="bottom-sheet" id="sheet-settings">
+  <div class="drag-handle"></div>
+  <div class="sheet-title">Custom Mode Settings</div>
+
+  <div class="input-group">
+    <label>Breaths per Round</label>
+    <input type="number" id="cfg-breaths" value="30">
+  </div>
+  <div class="input-group">
+    <label>Starting Hold Time (Seconds)</label>
+    <input type="number" id="cfg-base" value="45">
+  </div>
+  <div class="input-group">
+    <label>Increase per Round (Seconds)</label>
+    <input type="number" id="cfg-inc" value="15">
+  </div>
+  <button class="btn btn-primary" style="margin-top: 10px;" onclick="DB.saveSettings()">Save & Close</button>
+</div>
+
+<div class="bottom-sheet" id="sheet-stats">
+  <div class="drag-handle"></div>
+  <div class="sheet-title" id="cal-month-text">This Month</div>
+
+  <div class="stat-card">
+    <span>Total Sessions</span>
+    <span class="stat-val" id="stat-total">0</span>
+  </div>
+  <div class="stat-card" style="margin-bottom: 20px;">
+    <span>Max Hold Time</span>
+    <span class="stat-val" id="stat-max">0s</span>
+  </div>
+
+  <div class="cal-header">
+    <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+  </div>
+  <div class="cal-grid" id="cal-grid">
+  </div>
+</div>
+
+<div class="bottom-sheet" id="sheet-decision">
+  <div class="drag-handle"></div>
+  <div class="sheet-title" style="text-align: center;">Round Complete</div>
+  <div class="sheet-sub" style="text-align: center;" id="p-sub">Choose your next step.</div>
+
+  <button class="btn btn-ghost" onclick="App.nextRound(true)">🔥 Increase Intensity</button>
+  <button class="btn btn-ghost" onclick="App.nextRound(false)">🔄 Maintain Level</button>
+
+  <button class="btn btn-primary hidden" id="btn-stop-save" style="margin-top:10px;" onclick="App.endSession()">🛑 Complete & Save</button>
+</div>
+
+<script>
+  /**
+   * UI MANAGER (Bottom Sheets)
+   */
+  const UI = {
+    sheets: ['sheet-settings', 'sheet-stats', 'sheet-decision'],
+
+    openSheet(id) {
+      this.closeAllSheets();
+      document.getElementById('scrim').classList.add('active');
+      document.getElementById(id).classList.add('active');
+      if(id === 'sheet-stats') DB.renderCalendar();
+    },
+
+    closeAllSheets() {
+      document.getElementById('scrim').classList.remove('active');
+      this.sheets.forEach(s => document.getElementById(s).classList.remove('active'));
+    }
+  };
+
+  /**
+   * LOCAL DATABASE & CALENDAR
+   */
+  const DB = {
+    data: { customBreaths: 30, customBase: 45, customInc: 15, history: [] },
+
+    init() {
+      const stored = localStorage.getItem('moriarty_v2');
+      if(stored) this.data = JSON.parse(stored);
+
+      document.getElementById('cfg-breaths').value = this.data.customBreaths;
+      document.getElementById('cfg-base').value = this.data.customBase;
+      document.getElementById('cfg-inc').value = this.data.customInc;
+    },
+
+    saveSettings() {
+      this.data.customBreaths = parseInt(document.getElementById('cfg-breaths').value) || 30;
+      this.data.customBase = parseInt(document.getElementById('cfg-base').value) || 45;
+      this.data.customInc = parseInt(document.getElementById('cfg-inc').value) || 15;
+      localStorage.setItem('moriarty_v2', JSON.stringify(this.data));
+
+      App.updateCustomSettings();
+      UI.closeAllSheets();
+    },
+
+    logSession(roundsCompleted, maxTimeHeld) {
+      if (roundsCompleted <= 0) return;
+      const today = new Date().toISOString().split('T')[0];
+      this.data.history.push({ date: today, rounds: roundsCompleted, maxTime: maxTimeHeld });
+      localStorage.setItem('moriarty_v2', JSON.stringify(this.data));
+    },
+
+    renderCalendar() {
+      document.getElementById('stat-total').innerText = this.data.history.length;
+      let best = 0;
+      this.data.history.forEach(h => { if(h.maxTime > best) best = h.maxTime; });
+      document.getElementById('stat-max').innerText = best + "s";
+
+      const grid = document.getElementById('cal-grid');
+      grid.innerHTML = '';
+
+      const now = new Date();
+      document.getElementById('cal-month-text').innerText = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      // Get day of week for 1st of month (0 = Sun, 1 = Mon... we want Mon=0, Sun=6)
+      let firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
+      firstDay = firstDay === 0 ? 6 : firstDay - 1;
+
+      const completedDates = new Set(this.data.history.map(h => h.date));
+
+      // Offset empty days
+      for(let i=0; i<firstDay; i++) {
+        let emptyDiv = document.createElement('div');
+        emptyDiv.className = 'cal-day empty';
+        grid.appendChild(emptyDiv);
+      }
+
+      // Fill real days
+      for(let i = 1; i <= daysInMonth; i++) {
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'cal-day';
+        dayDiv.innerText = i;
+        if (completedDates.has(dateStr)) dayDiv.classList.add('done');
+        grid.appendChild(dayDiv);
+      }
+    }
+  };
+
+  /**
+   * SYSTEM WAKE LOCK
+   */
+  const Sys = {
+    wakeLock: null,
+    async keepAwake() { if ('wakeLock' in navigator) { try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} } },
+    release() { if (this.wakeLock) { this.wakeLock.release(); this.wakeLock = null; } }
+  };
+
+  /**
+   * AUDIO ENGINE
+   */
+  const AudioSys = {
+    ctx: null, nodes: [],
+    init() {
+      if(!this.ctx) {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.connect(this.ctx.destination);
+        this.master = comp;
+      }
+      if(this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    stopAll() { this.nodes.forEach(n => { try { n.stop(); n.disconnect(); } catch(e){} }); this.nodes = []; },
+    playOcean() {
+      this.stopAll();
+      const bufferSize = 2 * this.ctx.sampleRate;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for(let i=0; i<bufferSize; i++) data[i] = (Math.random()*2-1) * 0.1;
+
+      const osc = this.ctx.createBufferSource(); osc.buffer = buffer; osc.loop = true;
+      const filter = this.ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 400;
+      const lfo = this.ctx.createOscillator(); lfo.frequency.value = 0.14;
+      const lfoGain = this.ctx.createGain(); lfoGain.gain.value = 400;
+
+      lfo.connect(lfoGain).connect(filter.frequency);
+      const masterGain = this.ctx.createGain(); masterGain.gain.value = 1.0;
+
+      osc.connect(filter).connect(masterGain).connect(this.master);
+      osc.start(); lfo.start(); this.nodes.push(osc, lfo);
+    },
+    playDrone() {
+      this.stopAll();
+      const osc = this.ctx.createOscillator(); osc.frequency.value = 55;
+      const gain = this.ctx.createGain(); gain.gain.value = 0.15;
+      osc.connect(gain).connect(this.master); osc.start(); this.nodes.push(osc);
+    },
+    beat() {
+      const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+      osc.frequency.setValueAtTime(60, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+      osc.connect(gain).connect(this.master); osc.start(); osc.stop(this.ctx.currentTime + 0.1);
+    }
+  };
+
+  /**
+   * VISUAL ENGINE
+   */
+  const VisSys = {
+    canvas: document.getElementById('canvas-layer'), cluster: document.getElementById('cluster-ref'),
+    ctx: null, state: 0.2, pulse: 0, color: {r:48, g:209, b:88},
+
+    init() {
+      this.ctx = this.canvas.getContext('2d');
+      this.resize(); window.addEventListener('resize', () => this.resize());
+      this.loop();
+    },
+    resize() {
+      const dpr = window.devicePixelRatio || 1;
+      this.canvas.width = window.innerWidth * dpr; this.canvas.height = window.innerHeight * dpr;
+      this.ctx.scale(dpr, dpr);
+    },
+    setColor(hexType) {
+      if(hexType === 'green') this.color = {r:50, g:215, b:75};
+      if(hexType === 'red')   this.color = {r:255, g:69, b:58};
+      if(hexType === 'blue')  this.color = {r:10, g:132, b:255};
+      if(hexType === 'idle')  this.color = {r:100, g:100, b:100};
+    },
+    setState(val) { this.state = val; },
+    triggerPulse() { this.pulse = 1; },
+
+    loop() {
+      requestAnimationFrame(() => this.loop());
+      const w = window.innerWidth, h = window.innerHeight;
+      this.ctx.fillStyle = 'rgba(0,0,0,0.15)'; this.ctx.fillRect(0, 0, w, h);
+
+      let cx = w/2, cy = h/2, maxR = w*0.44, minR = maxR*0.2;
+
+      if(!App.active) {
+        // Gentle ambient pulse when idle
+        const t = Date.now() / 2000;
+        this.state = 0.2 + (Math.sin(t)*0.05);
+        this.setColor('idle');
+      }
+
+      const rect = this.cluster.getBoundingClientRect();
+      if(rect.width > 0) {
+        cx = rect.left + (rect.width / 2);
+        cy = rect.top + (rect.height / 2);
+        maxR = rect.width * 0.44; minR = maxR * 0.2;
+      }
+
+      this.pulse *= 0.9;
+      let currentRadius = minR + (maxR - minR) * this.state;
+      currentRadius += (this.pulse * 8);
+
+      const rgb = `rgb(${this.color.r},${this.color.g},${this.color.b})`;
+      this.ctx.beginPath(); this.ctx.arc(cx, cy, currentRadius, 0, Math.PI * 2);
+      this.ctx.fillStyle = rgb;
+      this.ctx.shadowBlur = 40 * (this.state + (this.pulse*0.5));
+      this.ctx.shadowColor = rgb;
+      this.ctx.fill(); this.ctx.shadowBlur = 0;
+    }
+  };
+
+  /**
+   * CORE APP LOGIC
+   */
+  const App = {
+    mode: 'beg',
+    settings: {
+      beg: { breaths: 20, holds: [20, 30, 40] },
+      int: { breaths: 25, holds: [30, 45, 60] },
+      pro: { breaths: 30, holds: [60, 90, 120] },
+      cust: { breaths: 30, holds: [45, 60, 75] }
+    },
+
+    round: 0, sessionMaxHold: 0, breathsTarget: 20, holdTarget: 30,
+    phase: 'IDLE', active: false, startTime: 0,
+
+    dom: {
+      ring: document.getElementById('ring'), timer: document.getElementById('timer'),
+      label: document.getElementById('label'), pill: document.getElementById('status-pill'),
+      pillText: document.getElementById('status-text'), pillDot: document.getElementById('status-dot'),
+      btnStart: document.getElementById('btn-start'), btnPanic: document.getElementById('btn-panic'),
+      modeSwitch: document.getElementById('mode-switch'), btnStopSave: document.getElementById('btn-stop-save'),
+      btns: { beg: document.getElementById('btn-beg'), int: document.getElementById('btn-int'), pro: document.getElementById('btn-pro'), cust: document.getElementById('btn-cust') }
+    },
+
+    updateCustomSettings() {
+      const base = DB.data.customBase; const inc = DB.data.customInc;
+      this.settings.cust.breaths = DB.data.customBreaths;
+      this.settings.cust.holds = [base, base + inc, base + (inc*2)];
+    },
+
+    setMode(m) {
+      this.mode = m;
+      Object.values(this.dom.btns).forEach(b => b.classList.remove('active'));
+      this.dom.btns[m].classList.add('active');
+    },
+
+    start() {
+      UI.closeAllSheets();
+      this.updateCustomSettings();
+
+      this.active = true; this.round = 0; this.sessionMaxHold = 0;
+      const cfg = this.settings[this.mode];
+      this.breathsTarget = cfg.breaths; this.holdTarget = cfg.holds[0];
+
+      Sys.keepAwake();
+      this.dom.btnStart.classList.add('hidden');
+      this.dom.modeSwitch.classList.add('hidden');
+      this.dom.pill.classList.add('visible');
+
+      AudioSys.init();
+      this.setPhase('BREATHE');
+      this.loop();
+    },
+
+    stop() {
+      this.active = false; Sys.release(); AudioSys.stopAll();
+      this.dom.btnStart.classList.remove('hidden');
+      this.dom.btnPanic.classList.add('hidden');
+      this.dom.modeSwitch.classList.remove('hidden');
+      this.dom.pill.classList.remove('visible');
+      this.dom.timer.innerText = "00";
+      this.dom.label.innerText = "Breathing";
+      VisSys.setState(0.2); this.setRing(0);
+    },
+
+    endSession() {
+      UI.closeAllSheets();
+      DB.logSession(this.round + 1, this.sessionMaxHold);
+      this.stop();
+      UI.openSheet('sheet-stats'); // Show calendar after saving
+    },
+
+    setPhase(p) {
+      this.phase = p; this.startTime = Date.now();
+      if (p === 'BREATHE') {
+        this.updateUI(`Round ${this.round + 1}`, 'Deep In / Out', 'green');
+        AudioSys.playOcean(); this.dom.btnPanic.classList.add('hidden');
+      } else if (p === 'RETENTION') {
+        this.updateUI(`Hold Phase`, 'Empty Lungs', 'red');
+        this.dom.btnPanic.classList.remove('hidden'); AudioSys.playDrone();
+      } else if (p === 'INHALE') {
+        this.updateUI(`Recovery`, 'Inhale Fully', 'blue');
+        this.dom.btnPanic.classList.add('hidden');
+      } else if (p === 'RECOVERY') {
+        this.updateUI(`Squeeze`, 'Hold to Head', 'blue');
+      }
+    },
+
+    updateUI(pillText, labelText, colorName) {
+      this.dom.pillText.innerText = pillText; this.dom.label.innerText = labelText;
+      VisSys.setColor(colorName);
+      let hex = '#32d74b'; if(colorName === 'red') hex = '#ff453a'; if(colorName === 'blue') hex = '#0a84ff';
+      this.dom.ring.style.stroke = hex; this.dom.ring.style.filter = `drop-shadow(0 0 8px ${hex})`;
+      this.dom.pillDot.style.background = hex;
+    },
+
+    panic() { if(this.phase === 'RETENTION') this.setPhase('INHALE'); },
+
+    nextRound(increase) {
+      UI.closeAllSheets();
+      if (increase) {
+        this.round++;
+        const cfg = this.settings[this.mode];
+        if(this.round < cfg.holds.length) {
+          this.holdTarget = cfg.holds[this.round];
+        } else {
+          let incAmount = 30;
+          if(this.mode === 'beg') incAmount = 10;
+          if(this.mode === 'int') incAmount = 15;
+          if(this.mode === 'cust') incAmount = DB.data.customInc;
+          this.holdTarget += incAmount;
+        }
+      }
+      this.active = true;
+      this.setPhase('BREATHE');
+      this.loop();
+    },
+
+    setRing(p) { this.dom.ring.style.strokeDashoffset = 295.3 - (p * 295.3); },
+
+    loop() {
+      if(!this.active) return;
+      requestAnimationFrame(() => this.loop());
+      const elapsed = Date.now() - this.startTime;
+
+      if (this.phase === 'BREATHE') {
+        const count = Math.floor(elapsed / 3500);
+        const cycle = (elapsed % 3500) / 3500;
+        this.dom.timer.innerText = `${count + 1}/${this.breathsTarget}`;
+
+        let val = cycle < 0.45 ? cycle / 0.45 : (cycle < 0.55 ? 1 : 1 - ((cycle - 0.55)/0.45));
+        VisSys.setState(val); this.setRing(val);
+
+        if (count >= this.breathsTarget) this.setPhase('RETENTION');
+      }
+      else if (this.phase === 'RETENTION') {
+        const left = Math.ceil(this.holdTarget - (elapsed/1000));
+        this.dom.timer.innerText = left > 0 ? left : 0;
+
+        const currentHold = Math.floor(elapsed/1000);
+        if (currentHold > this.sessionMaxHold) this.sessionMaxHold = currentHold;
+
+        const p = Math.max(0, left / this.holdTarget);
+        this.setRing(p); VisSys.setState(0.1);
+
+        const interval = 1200 - ((1-p)*600);
+        if((elapsed % interval) < 50) {
+          if(navigator.vibrate) navigator.vibrate(30);
+          VisSys.triggerPulse(); AudioSys.beat();
+        }
+        if (left <= 0) this.setPhase('INHALE');
+      }
+      else if (this.phase === 'INHALE') {
+        const p = Math.min(elapsed / 2000, 1);
+        this.dom.timer.innerText = "IN";
+        this.setRing(p); VisSys.setState(p);
+        if (elapsed > 2000) this.setPhase('RECOVERY');
+      }
+      else if (this.phase === 'RECOVERY') {
+        const left = Math.ceil(15 - (elapsed/1000));
+        this.dom.timer.innerText = left;
+        this.setRing(1); VisSys.setState(1);
+
+        if (left <= 0) {
+          this.active = false;
+          UI.openSheet('sheet-decision');
+          if(navigator.vibrate) navigator.vibrate([100,50,100]);
+
+          if (this.round >= 2) {
+            this.dom.btnStopSave.classList.remove('hidden');
+          } else {
+            this.dom.btnStopSave.classList.add('hidden');
+          }
+        }
+      }
+    }
+  };
+
+  // INITIALIZATION
+  DB.init();
+  VisSys.init();
+</script>
+</body>
+</html>
